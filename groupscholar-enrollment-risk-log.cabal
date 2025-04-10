@@ -1,0 +1,34 @@
+cabal-version:      2.4
+name:               groupscholar-enrollment-risk-log
+version:            0.1.0.0
+synopsis:           Group Scholar enrollment risk logging CLI
+category:           Operations
+build-type:         Simple
+
+executable enrollment-risk-log
+  main-is:             Main.hs
+  hs-source-dirs:      app, src
+  default-language:    Haskell2010
+  ghc-options:         -Wall -Wcompat -Widentities
+  build-depends:       base >=4.14 && <5,
+                       bytestring,
+                       text,
+                       time,
+                       optparse-applicative,
+                       postgresql-simple
+
+  other-modules:       RiskScore,
+                       RiskTypes
+
+
+test-suite enrollment-risk-log-test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test, src
+  main-is:             Spec.hs
+  default-language:    Haskell2010
+  ghc-options:         -Wall -Wcompat -Widentities
+  build-depends:       base >=4.14 && <5,
+                       hspec,
+                       text
+  other-modules:       RiskScore,
+                       RiskTypes
