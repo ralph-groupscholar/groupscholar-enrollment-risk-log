@@ -3,6 +3,7 @@ module Main (main) where
 import Test.Hspec
 
 import RiskScore (riskScore)
+import RiskStatus (RiskStatus(..), parseRiskStatus, renderRiskStatus)
 import RiskTypes (RiskLevel(..), parseRiskLevel)
 
 main :: IO ()
@@ -18,3 +19,13 @@ main = hspec $ do
       parseRiskLevel "HiGh" `shouldBe` Right High
     it "rejects invalid values" $
       parseRiskLevel "urgent" `shouldSatisfy` either (const True) (const False)
+
+  describe "parseRiskStatus" $ do
+    it "accepts case-insensitive values" $
+      parseRiskStatus "ReSolVed" `shouldBe` Right Resolved
+    it "rejects invalid values" $
+      parseRiskStatus "pending" `shouldSatisfy` either (const True) (const False)
+
+  describe "renderRiskStatus" $ do
+    it "renders status labels" $
+      renderRiskStatus Acknowledged `shouldBe` "acknowledged"

@@ -18,6 +18,7 @@ executable enrollment-risk-log
                        postgresql-simple
 
   other-modules:       RiskScore,
+                       RiskStatus,
                        RiskTypes
 
 
@@ -31,4 +32,5 @@ test-suite enrollment-risk-log-test
                        hspec,
                        text
   other-modules:       RiskScore,
+                       RiskStatus,
                        RiskTypes

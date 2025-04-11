@@ -4,8 +4,10 @@ A Haskell CLI for logging enrollment risk signals, tracking who reported them, a
 
 ## Features
 - Log risk signals with consistent levels and categories
-- List recent entries with timestamps and reporters
-- Summarize risks by level and category for a given time window
+- List recent entries with timestamps, status, and owners
+- Summarize risks by level, category, and status for a given time window
+- Update risk status/owner for follow-up workflows
+- Highlight unresolved high/critical risks needing attention
 - Postgres-backed storage with production-ready schema
 
 ## Tech
@@ -38,6 +40,13 @@ cabal run enrollment-risk-log -- add \
 cabal run enrollment-risk-log -- list --limit 10
 
 cabal run enrollment-risk-log -- summary --days 30
+
+cabal run enrollment-risk-log -- attention --limit 10
+
+cabal run enrollment-risk-log -- update \
+  --entry-id 12 \
+  --status acknowledged \
+  --owner "ops-lead@groupscholar.com"
 ```
 
 ## Database setup
@@ -58,3 +67,4 @@ cabal test
 ## Project notes
 - All tables live under the `groupscholar_enrollment_risk_log` schema.
 - Keep risk levels to: `low`, `medium`, `high`, `critical`.
+- Status values are: `open`, `acknowledged`, `resolved`.
