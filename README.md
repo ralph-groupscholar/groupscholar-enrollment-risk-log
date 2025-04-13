@@ -8,6 +8,8 @@ A Haskell CLI for logging enrollment risk signals, tracking who reported them, a
 - Summarize risks by level, category, and status for a given time window
 - Update risk status/owner for follow-up workflows
 - Highlight unresolved high/critical risks needing attention
+- View unresolved risk queues by status
+- Identify unresolved risks aging beyond a specified window
 - Postgres-backed storage with production-ready schema
 
 ## Tech
@@ -39,9 +41,17 @@ cabal run enrollment-risk-log -- add \
 
 cabal run enrollment-risk-log -- list --limit 10
 
+cabal run enrollment-risk-log -- list --status open --limit 10
+
 cabal run enrollment-risk-log -- summary --days 30
 
 cabal run enrollment-risk-log -- attention --limit 10
+
+cabal run enrollment-risk-log -- queue --status open --limit 10
+
+cabal run enrollment-risk-log -- aging --days 14 --limit 15
+
+cabal run enrollment-risk-log -- aging --days 30 --status acknowledged --limit 10
 
 cabal run enrollment-risk-log -- update \
   --entry-id 12 \

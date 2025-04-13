@@ -3,6 +3,7 @@ module Main (main) where
 import Test.Hspec
 
 import RiskScore (riskScore)
+import RiskAging (AgeBucket(..), bucketForDays, renderAgeBucket)
 import RiskStatus (RiskStatus(..), parseRiskStatus, renderRiskStatus)
 import RiskTypes (RiskLevel(..), parseRiskLevel)
 
@@ -29,3 +30,17 @@ main = hspec $ do
   describe "renderRiskStatus" $ do
     it "renders status labels" $
       renderRiskStatus Acknowledged `shouldBe` "acknowledged"
+
+  describe "bucketForDays" $ do
+    it "maps short ages to 0-7d" $
+      bucketForDays 5 `shouldBe` Under7
+    it "maps mid ages to 8-14d" $
+      bucketForDays 10 `shouldBe` Under14
+    it "maps longer ages to 15-30d" $
+      bucketForDays 22 `shouldBe` Under30
+    it "maps oldest ages to 31d+" $
+      bucketForDays 45 `shouldBe` Over30
+
+  describe "renderAgeBucket" $ do
+    it "renders bucket labels" $
+      renderAgeBucket Over30 `shouldBe` "31d+"

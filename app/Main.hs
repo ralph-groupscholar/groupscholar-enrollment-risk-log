@@ -10,6 +10,7 @@ import System.Environment (lookupEnv)
 import System.Exit (die)
 
 import RiskScore (riskScore)
+import RiskAging (bucketForDays, renderAgeBucket)
 import RiskStatus (RiskStatus(..), parseRiskStatus, renderRiskStatus)
 import RiskTypes (RiskLevel, parseRiskLevel, renderRiskLevel)
 
@@ -20,6 +21,7 @@ data Command
   | Update UpdateOptions
   | Attention ListOptions
   | Queue QueueOptions
+  | Aging AgingOptions
 
 data ListOptions = ListOptions
   { listLimit :: Int
@@ -39,6 +41,12 @@ data UpdateOptions = UpdateOptions
 data QueueOptions = QueueOptions
   { queueStatus :: String
   , queueLimit :: Int
+  }
+
+data AgingOptions = AgingOptions
+  { agingDays :: Int
+  , agingStatus :: Maybe String
+  , agingLimit :: Int
   }
 
 data AddOptions = AddOptions
@@ -61,6 +69,8 @@ main = do
     Summary options -> runSummary conn options
     Update options -> runUpdate conn options
     Attention options -> runAttention conn options
+    Queue options -> runQueue conn options
+    Aging options -> runAging conn options
 
 opts :: ParserInfo Command
 opts = info (commandParser <**> helper)
@@ -75,6 +85,8 @@ commandParser = hsubparser
  <> command "summary" (info (Summary <$> summaryParser) (progDesc "Summarize risks"))
  <> command "update" (info (Update <$> updateParser) (progDesc "Update status/owner"))
  <> command "attention" (info (Attention <$> listParser) (progDesc "List unresolved high/critical risks"))
+ <> command "queue" (info (Queue <$> queueParser) (progDesc "List unresolved risks by status"))
+ <> command "aging" (info (Aging <$> agingParser) (progDesc "List unresolved risks older than N days"))
   )
 
 addParser :: Parser AddOptions
@@ -89,6 +101,7 @@ addParser = AddOptions
 listParser :: Parser ListOptions
 listParser = ListOptions
   <$> option auto (long "limit" <> metavar "N" <> value 20 <> help "Number of entries")
+  <*> optional (strOption (long "status" <> metavar "STATUS" <> help "Filter by status (open, acknowledged, resolved)"))
 
 summaryParser :: Parser SummaryOptions
 summaryParser = SummaryOptions
@@ -100,6 +113,16 @@ updateParser = UpdateOptions
   <*> optional (strOption (long "status" <> metavar "STATUS" <> help "open | acknowledged | resolved"))
   <*> optional (strOption (long "owner" <> metavar "OWNER" <> help "Assigned owner"))
 
+queueParser :: Parser QueueOptions
+queueParser = QueueOptions
+  <$> strOption (long "status" <> metavar "STATUS" <> value "open" <> help "Queue status (open or acknowledged)")
+  <*> option auto (long "limit" <> metavar "N" <> value 10 <> help "Number of queue items")
+
+agingParser :: Parser AgingOptions
+agingParser = AgingOptions
+  <$> option auto (long "days" <> metavar "DAYS" <> value 14 <> help "Minimum age in days")
+  <*> optional (strOption (long "status" <> metavar "STATUS" <> help "Filter by status (open, acknowledged)"))
+  <*> option auto (long "limit" <> metavar "N" <> value 20 <> help "Number of entries")
 
 connectFromEnv :: IO Connection
 connectFromEnv = do
@@ -159,7 +182,8 @@ parseStatus raw =
     Left err -> die err
 
 data EntryRow = EntryRow
-  { entryScholarId :: String
+  { entryId :: Int
+  , entryScholarId :: String
   , entryScholarName :: String
   , entryRiskLevel :: String
   , entryCategory :: String
@@ -172,22 +196,33 @@ data EntryRow = EntryRow
 
 instance FromRow EntryRow where
   fromRow =
-    EntryRow <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
+    EntryRow <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field
 
 runList :: Connection -> ListOptions -> IO ()
 runList conn options = do
-  rows <- query conn
-    "SELECT scholar_id, scholar_name, risk_level, category, reported_by, reported_at, risk_score, status, owner\
-    \ FROM groupscholar_enrollment_risk_log.risk_entries\
-    \ ORDER BY reported_at DESC\
-    \ LIMIT ?"
-    (Only (listLimit options))
+  rows <- case listStatus options of
+    Nothing -> query conn
+      "SELECT id, scholar_id, scholar_name, risk_level, category, reported_by, reported_at, risk_score, status, owner\
+      \ FROM groupscholar_enrollment_risk_log.risk_entries\
+      \ ORDER BY reported_at DESC\
+      \ LIMIT ?"
+      (Only (listLimit options))
+    Just rawStatus -> do
+      status <- parseStatus rawStatus
+      query conn
+        "SELECT id, scholar_id, scholar_name, risk_level, category, reported_by, reported_at, risk_score, status, owner\
+        \ FROM groupscholar_enrollment_risk_log.risk_entries\
+        \ WHERE status = ?\
+        \ ORDER BY reported_at DESC\
+        \ LIMIT ?"
+        (renderRiskStatus status, listLimit options)
   when (null rows) $ putStrLn "No entries found."
   mapM_ renderEntry rows
 
 renderEntry :: EntryRow -> IO ()
 renderEntry row = do
-  putStrLn $ entryScholarId row
+  putStrLn $ show (entryId row)
+    <> " | " <> entryScholarId row
     <> " | " <> entryScholarName row
     <> " | " <> entryRiskLevel row
     <> " | " <> entryCategory row
@@ -196,6 +231,32 @@ renderEntry row = do
     <> " | " <> entryStatus row
     <> " | owner " <> maybe "unassigned" id (entryOwner row)
     <> " | " <> show (entryReportedAt row)
+
+data AgingRow = AgingRow
+  { agingEntry :: EntryRow
+  , agingDaysOpen :: Int
+  }
+
+instance FromRow AgingRow where
+  fromRow =
+    AgingRow
+      <$> (EntryRow <$> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field <*> field)
+      <*> field
+
+renderAging :: AgingRow -> IO ()
+renderAging row = do
+  let base = agingEntry row
+      bucketLabel = renderAgeBucket (bucketForDays (agingDaysOpen row))
+  putStrLn $ show (entryId base)
+    <> " | " <> entryScholarId base
+    <> " | " <> entryScholarName base
+    <> " | " <> entryRiskLevel base
+    <> " | " <> entryCategory base
+    <> " | score " <> show (entryRiskScore base)
+    <> " | " <> entryReporter base
+    <> " | " <> entryStatus base
+    <> " | owner " <> maybe "unassigned" id (entryOwner base)
+    <> " | age " <> show (agingDaysOpen row) <> "d (" <> bucketLabel <> ")"
 
 runSummary :: Connection -> SummaryOptions -> IO ()
 runSummary conn options = do
@@ -264,15 +325,55 @@ runUpdate conn options = do
     die "Provide at least one of --status or --owner."
   putStrLn "Entry updated."
 
+runQueue :: Connection -> QueueOptions -> IO ()
+runQueue conn options = do
+  status <- parseStatus (queueStatus options)
+  rows <- query conn
+    "SELECT id, scholar_id, scholar_name, risk_level, category, reported_by, reported_at, risk_score, status, owner\
+    \ FROM groupscholar_enrollment_risk_log.risk_entries\
+    \ WHERE status = ?\
+    \ ORDER BY risk_score DESC, reported_at DESC\
+    \ LIMIT ?"
+    (renderRiskStatus status, queueLimit options)
+  when (null rows) $ putStrLn "No queue entries found."
+  mapM_ renderEntry rows
+
 runAttention :: Connection -> ListOptions -> IO ()
 runAttention conn options = do
   rows <- query conn
-    "SELECT scholar_id, scholar_name, risk_level, category, reported_by, reported_at, risk_score, status, owner\
+    "SELECT id, scholar_id, scholar_name, risk_level, category, reported_by, reported_at, risk_score, status, owner\
     \ FROM groupscholar_enrollment_risk_log.risk_entries\
     \ WHERE status <> 'resolved'\
     \ AND risk_level IN ('high','critical')\
-    \ ORDER BY reported_at DESC\
+    \ ORDER BY risk_score DESC, reported_at DESC\
     \ LIMIT ?"
     (Only (listLimit options))
   when (null rows) $ putStrLn "No urgent entries found."
   mapM_ renderEntry rows
+
+runAging :: Connection -> AgingOptions -> IO ()
+runAging conn options = do
+  let days = agingDays options
+  rows <- case agingStatus options of
+    Nothing -> query conn
+      "SELECT id, scholar_id, scholar_name, risk_level, category, reported_by, reported_at, risk_score, status, owner,\
+      \ FLOOR(EXTRACT(epoch FROM (now() - reported_at)) / 86400)::int as age_days\
+      \ FROM groupscholar_enrollment_risk_log.risk_entries\
+      \ WHERE status <> 'resolved'\
+      \ AND reported_at <= now() - ($1 || ' days')::interval\
+      \ ORDER BY age_days DESC, risk_score DESC\
+      \ LIMIT ?"
+      (days, agingLimit options)
+    Just rawStatus -> do
+      status <- parseStatus rawStatus
+      query conn
+        "SELECT id, scholar_id, scholar_name, risk_level, category, reported_by, reported_at, risk_score, status, owner,\
+        \ FLOOR(EXTRACT(epoch FROM (now() - reported_at)) / 86400)::int as age_days\
+        \ FROM groupscholar_enrollment_risk_log.risk_entries\
+        \ WHERE status = ?\
+        \ AND reported_at <= now() - ($1 || ' days')::interval\
+        \ ORDER BY age_days DESC, risk_score DESC\
+        \ LIMIT ?"
+        (renderRiskStatus status, days, agingLimit options)
+  when (null rows) $ putStrLn "No aging entries found."
+  mapM_ renderAging rows
